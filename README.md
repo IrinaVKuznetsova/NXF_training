@@ -1,0 +1,2 @@
+# NXF_training
+nextflow
