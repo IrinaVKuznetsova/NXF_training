@@ -16,6 +16,7 @@
  */
 params.genome     = "/home/user1/NXF_training/test-data/reference/ggal_1_48850000_49020000.Ggal71.500bpflank.fa"
 params.reads      = "/home/user1/NXF_training/test-data/reads/*_{1,2}.fq" 
+params.annotation = "/home/user1/NXF_training/test-data/reference/ggal_1_48850000_49020000.bed.gff"
 params.results    = "results" 
 
 
@@ -23,6 +24,7 @@ params.results    = "results"
  *  Step 2. Parse the input parameters
  */
 genome_file  = file(params.genome)   // value channel because if 10 processes ask for this value it will find it 10 times | in is the same out
+annot_file = file(params.annotation)
 Channel.fromFilePairs(params.reads).into{reads_ch; reads_ch2} // channelFrom is queue channel  | beacuse inpt is queued output is queued
 /*
  *  RUN to check: nextflow run main_mt.nf
@@ -114,64 +116,32 @@ process 'Convert SAM to BAM' {
   input:
       file(aligned_sam) from sam_channel 
   output:
-      file("OUT_aligned_ggal.bam") into bam_channel
+      file("filtered.bam") into bam_channel
   script:
   """
-  samtools view -S -b aligned_sam > OUT_aligned_ggal.bam
+  samtools view -S -b $aligned_sam | samtools view -b -f 2 -F 256 - > filtered.bam
   
   """
 }
 
 
-
-
-///samtools view -S -b OUT_aligned_ggal.sam > OUT_aligned_ggal.bam
-
-// publishDir - specify directory where you want to copy files
-
-
 /*
- * PROCESS 4 | Step 4. Get INDEX file with HISAT2-build
- * docker hub
- * hisat2-build [options]* <reference_in> <ht2_base>
- * tuple is used as we need Fa and Fai together in future
- 
-process 'Get indexed file HISAT2' { 
-  container 'makaho/hisat2-zstd:latest'
+ * PROCESS 7 | Step 7. Count reads
+ * samtools view -S -b sample.sam > sample.bam
+ */
+process 'Count reads featureCounts' { 
+  publishDir '/home/user1/NXF_training'
+  container 'nfcore/rnaseq:1.4.2'
   input:
-      file(genome) from genome_file 
-      file(reads) from results_trim_ch
+      file(filtered_bam) from bam_channel 
+      file(annot) from annot_file
   output:
-      tuple file(genome), file("indexed.*.ht2") into(genome_index_ch)  //, genome_aligned_ch2)
-      tuple file("OUT_aligned_ggal.sam") into sam_channel  
+      file("raw_counts.txt") into count_channel
   script:
   """
-  hisat2-build $genome indexed 
-  hisat2 -p 20 --no-spliced-alignment -x indexed -1 ${reads[0]} -2 ${reads[1]} -S OUT_aligned_ggal.sam 
-  samtools SAM to BAM
+  featureCounts -p -s 2 --fracOverlap 0.8 -a $annot -o raw_counts.txt $filtered_bam
+  
   """
 }
-*/
 
-//reads_ch.view() 
-//return
-
-// hisat2 -p 20 --no-spliced-alignment -x $index -1 $ -2 $ -S OUT_aligned_ggal.sam &> OUT_STATS_ggal.log
-
-/*
- * PROCESS 4 | Step 6. Alignment with HISAT2
- process 'Reads_Alignment' {
-    container 'makaho/hisat2-zstd:latest'
- input:
-    file trimmed_reads from results_trim_ch
-      
-
-  output:
-      file() into 
- 
-  script:
-    """
-    hisat2 -p 20 --no-spliced-alignment -x $index -1 $ -2 $ -S aligned_ggal.sam &> aligned_ggal_stats.log
-    """
-}
-*/
+// featureCounts [options] -a <annotation_file> -o <output_file> input_file1 [input_file2] .
